@@ -10,18 +10,12 @@ class Person:
         # set default params
         self.id = id
         self.relationship_status = 'single'
-        self.available_actions = ['commit', 'dump']        
+        self.available_actions = {'commit':.5,'dump':.5}
         self.popularity = .5
+        self.partner = -1 # if non-neg, then in relationship
         # set any randomizable or otherwise configurable parameters
         self.set_personality()
 
-        #### for the future ####
-        # self.attributes = {'humor': True} 
-        # self.preferences = {'humor': True}
-        # self.history = {}
-    
-    # def update_available_actions(new_action_set):
-    #     self.available_actions = new_action_set
     def set_personality(self):
         PERSONALITY_TYPES = 100
         self.personality_type = random.randint(0,PERSONALITY_TYPES)
@@ -73,9 +67,9 @@ class DatingGame:
                         nx.set_edge_attributes(self.graph, edge_attributes)
 
     # returns True for compatible, False for no
-    def is_compatible(node1, node2, threshold):
-        pers_score1 = nx.get_node_attributes(self.graph, "person_obj")[node1].personality_type
-        pers_score2 = nx.get_node_attributes(self.graph, "person_obj")[node2].personality_type
+    def is_compatible(self, node1, node2, threshold):
+        pers_score1 = node1.personality_type #nx.get_node_attributes(self.graph, "person_obj")[node1].personality_type
+        pers_score2 = node2.personality_type #nx.get_node_attributes(self.graph, "person_obj")[node2].personality_type
         if abs(pers_score1 - pers_score2) <= threshold:
             return True
         return False
@@ -85,25 +79,81 @@ class DatingGame:
         for timestep in range(self.totaltimesteps):
             print('timestep ', timestep, '...')
             for node in self.graph.nodes:
+                node = nx.get_node_attributes(self.graph, "person_obj")[node]
                 ### if node is NOT in a relationship
-                if nx.get_node_attributes(self.graph, "person_obj")[node].relationship_status == 'single':
+               # if nx.get_node_attributes(self.graph, "person_obj")[node].relationship_status == 'single':
+                if node.relationship_status == 'single':
                     ### set up the pool of nodes that target node could date
-                    dating_pool = [self.graph.neighbors(node)]
+                    dating_pool = [x for x in self.graph.neighbors(node.id)]
                     # if we're allowing for 2nd degree connections:
-                    for neighbor in self.graph.neighbors(node):
+                    for neighbor in self.graph.neighbors(node.id):
                         dating_pool.extend(self.graph.neighbors(neighbor))
                     # remove duplicates
                     dating_pool = set(dating_pool)
                     ### find compatible potentials 
                     for candidate in dating_pool:
+                        candidate = nx.get_node_attributes(self.graph, "person_obj")[candidate]
                         # first check for personality compatibility
-                        if is_compatible(node, candidate):
+                        if self.is_compatible(node, candidate, threshold=5):
                             # now check for probability of starting a relationship
-                            if random.choices([True,False], weights=[self.gamestartprob,1-gamestartprob],k=1) == [True]:
-                                # start game TODO 
+                            if random.choices([True,False], weights=[self.gamestartprob,1-self.gamestartprob],k=1) == [True]:
+                                # now let's see if the two get involved!
+                                node_commit = False
+                                candidate_commit = False
+                                if random.choices([True,False], weights=[node.available_actions['commit'],node.available_actions['dump']],k=1) == [True]:
+                                    node_commit = True
+                                if random.choices([True,False], weights=[candidate.available_actions['commit'],candidate.available_actions['dump']],k=1) == [True]:
+                                    candidate_commit = True
+                                # if both commit, (1) date; (2) increase their probs of committing again
+                                if node_commit and candidate_commit:
+                                    # update relationship
+                                    node.relationship_status = 'relationship'
+                                    node.partner = candidate.id
+                                    candidate.relationship_status = 'relationship'
+                                    candidate.partner = node.id
+                                    edge_attributes = {(node, candidate):{'relationship':True,
+                                                                        'relationship_time':1}}
+                                    nx.set_edge_attributes(self.graph, edge_attributes) # TODO double check this overwrites
+                                    
+                                    # update strategies
+                                    node.available_actions['commit'] = (1 - node.available_actions['commit'])/2 + node.available_actions['commit'] # TODO --> maybe make this a function of relationship_time?
+                                    node.available_actions['dump'] = 1 - node.available_actions['commit']
+                                    candidate.available_actions['commit'] = (1 - candidate.available_actions['commit'])/2 + candidate.available_actions['commit'] # TODO --> maybe make this a function of relationship_time?
+                                    candidate.available_actions['dump'] = 1 - candidate.available_actions['commit']
+                                # if one commits and one dumps, (1) decrease committers' prob of committing 
+                                if node_commit and not candidate_commit:
+                                    # update strategies
+                                    node.available_actions['commit'] = node.available_actions['commit'] - (1 - node.available_actions['commit'])/4 # TODO --> maybe make this a function of relationship_time?
+                                    node.available_actions['dump'] = 1 - node.available_actions['commit']
+                                if not node_commit and candidate_commit:
+                                    # update strategies
+                                    candidate.available_actions['commit'] = candidate.available_actions['commit'] - (1 - candidate.available_actions['commit'])/4 # TODO --> maybe make this a function of relationship_time?
+                                    candidate.available_actions['dump'] = 1 - candidate.available_actions['commit']
+                                # if both dump, do nothing
                 else:
-                    # TODO --> get partner and then determine if they commit again, or dump
-
+                    # get partner and then determine if they commit again, or dump
+                    partner = nx.get_node_attributes(self.graph, "person_obj")[node.partner]
+                    node_commit = False
+                    partner_commit = False
+                    if random.choices([True,False], weights=[node.available_actions['commit'],node.available_actions['dump']],k=1) == [True]:
+                        node_commit = True
+                    if random.choices([True,False], weights=[partner.available_actions['commit'],partner.available_actions['dump']],k=1) == [True]:
+                        partner_commit = True
+                    # update strategies accordingly
+                    if node_commit and partner_commit:
+                        node.available_actions['commit'] = (1 - node.available_actions['commit'])/2 + node.available_actions['commit'] # TODO --> maybe make this a function of relationship_time?
+                        node.available_actions['dump'] = 1 - node.available_actions['commit']
+                        partner.available_actions['commit'] = (1 - partner.available_actions['commit'])/2 + partner.available_actions['commit'] # TODO --> maybe make this a function of relationship_time?
+                        partner.available_actions['dump'] = 1 - partner.available_actions['commit']
+                    # if one commits and one dumps, (1) decrease committers' prob of committing 
+                    if node_commit and not partner_commit:
+                        # update strategies
+                        node.available_actions['commit'] = node.available_actions['commit'] - (1 - node.available_actions['commit'])/4 # TODO --> maybe make this a function of relationship_time?
+                        node.available_actions['dump'] = 1 - node.available_actions['commit']
+                    if not node_commit and partner_commit:
+                        # update strategies
+                        candidate.available_actions['commit'] = candidate.available_actions['commit'] - (1 - candidate.available_actions['commit'])/4 # TODO --> maybe make this a function of relationship_time?
+                        candidate.available_actions['dump'] = 1 - candidate.available_actions['commit']
         # visualize end graph
         nx.draw(self.graph)
         plt.show()
@@ -111,10 +161,10 @@ class DatingGame:
 def main():
     # initialize the game
     args = { 'NetworkInfo':
-                {'Population': 20,
+                {'Population': 200,
                 'cur_id_num': 0},
         'EpisodeInfo': {
-            'TotalTimesteps':10,
+            'TotalTimesteps':100,
             'GameStartProbability':.7
         }
     }
@@ -123,7 +173,6 @@ def main():
     new_game.set_relationships(init_degs=10)
     # begin the game!
     new_game.begin_episode()
-
 
 
 
