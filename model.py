@@ -68,11 +68,12 @@ class DatingGame:
 
     # returns True for compatible, False for no
     def is_compatible(self, node1, node2, threshold):
-        pers_score1 = node1.personality_type #nx.get_node_attributes(self.graph, "person_obj")[node1].personality_type
-        pers_score2 = node2.personality_type #nx.get_node_attributes(self.graph, "person_obj")[node2].personality_type
+        pers_score1 = node1.personality_type
+        pers_score2 = node2.personality_type
         if abs(pers_score1 - pers_score2) <= threshold:
             return True
         return False
+    
 
     # run the episode
     def begin_episode(self):
@@ -80,8 +81,8 @@ class DatingGame:
             print('timestep ', timestep, '...')
             for node in self.graph.nodes:
                 node = nx.get_node_attributes(self.graph, "person_obj")[node]
+              #  print(node.relationship_status, ' ', node.id, node.partner)
                 ### if node is NOT in a relationship
-               # if nx.get_node_attributes(self.graph, "person_obj")[node].relationship_status == 'single':
                 if node.relationship_status == 'single':
                     ### set up the pool of nodes that target node could date
                     dating_pool = [x for x in self.graph.neighbors(node.id)]
@@ -90,7 +91,10 @@ class DatingGame:
                         dating_pool.extend(self.graph.neighbors(neighbor))
                     # remove duplicates
                     dating_pool = set(dating_pool)
-                    ### find compatible potentials 
+                    # remove non-single nodes
+                    dating_pool = [x for x in dating_pool if nx.get_node_attributes(self.graph, "person_obj")[x].relationship_status=='single']
+                    
+                    ### find compatible potentials
                     for candidate in dating_pool:
                         candidate = nx.get_node_attributes(self.graph, "person_obj")[candidate]
                         # first check for personality compatibility
@@ -113,7 +117,8 @@ class DatingGame:
                                     candidate.partner = node.id
                                     edge_attributes = {(node, candidate):{'relationship':True,
                                                                         'relationship_time':1}}
-                                    nx.set_edge_attributes(self.graph, edge_attributes) # TODO double check this overwrites
+                                    nx.set_edge_attributes(self.graph, edge_attributes) 
+
                                     
                                     # update strategies
                                     node.available_actions['commit'] = (1 - node.available_actions['commit'])/2 + node.available_actions['commit'] # TODO --> maybe make this a function of relationship_time?
@@ -141,39 +146,92 @@ class DatingGame:
                         partner_commit = True
                     # update strategies accordingly
                     if node_commit and partner_commit:
+                        # increase both's commitment probabilities by 50% 
                         node.available_actions['commit'] = (1 - node.available_actions['commit'])/2 + node.available_actions['commit'] # TODO --> maybe make this a function of relationship_time?
                         node.available_actions['dump'] = 1 - node.available_actions['commit']
                         partner.available_actions['commit'] = (1 - partner.available_actions['commit'])/2 + partner.available_actions['commit'] # TODO --> maybe make this a function of relationship_time?
                         partner.available_actions['dump'] = 1 - partner.available_actions['commit']
-                    # if one commits and one dumps, (1) decrease committers' prob of committing 
-                    if node_commit and not partner_commit:
-                        # update strategies
-                        node.available_actions['commit'] = node.available_actions['commit'] - (1 - node.available_actions['commit'])/4 # TODO --> maybe make this a function of relationship_time?
-                        node.available_actions['dump'] = 1 - node.available_actions['commit']
-                    if not node_commit and partner_commit:
-                        # update strategies
-                        candidate.available_actions['commit'] = candidate.available_actions['commit'] - (1 - candidate.available_actions['commit'])/4 # TODO --> maybe make this a function of relationship_time?
-                        candidate.available_actions['dump'] = 1 - candidate.available_actions['commit']
+                    else: 
+                        # if one commits and one dumps, (1) decrease committers' prob of committing (2) update relationship
+                        if node_commit and not partner_commit:
+                            # update strategies
+                            node.available_actions['commit'] = .3#node.available_actions['commit'] - (1 - node.available_actions['commit'])/4 # TODO --> maybe make this a function of relationship_time?
+                            node.available_actions['dump'] = .7 #1 - node.available_actions['commit']
+                            partner.available_actions['commit'] = .5
+                            partner.available_actions['dump'] = .5
+                        if not node_commit and partner_commit:
+                            # update strategies
+                            node.available_actions['commit'] = .5
+                            node.available_actions['dump'] = .5
+                            partner.available_actions['commit'] = .3 #partner.available_actions['commit'] - (1 - partner.available_actions['commit'])/4 # TODO --> maybe make this a function of relationship_time?
+                            partner.available_actions['dump'] = .7 #1 - partner.available_actions['commit']
+                        if not node_commit and not partner_commit:
+                            # update strategies
+                            node.available_actions['commit'] = .5
+                            node.available_actions['dump'] = .5
+                            partner.available_actions['commit'] = .5
+                            partner.available_actions['dump'] = .5
+
+                        # update relationship status
+                        edge_attributes = {(node, partner):{'relationship':False,
+                                                             'relationship_time':0}}
+                        nx.set_edge_attributes(self.graph, edge_attributes)
+                        # update the nodes
+                        node.partner = -1
+                        partner.partner = -1
+                        node.relationship_status = 'single'
+                        partner.relationship_status = 'single'
+
         # visualize end graph
         nx.draw(self.graph)
         plt.show()
+        # get stats on relationships
+        edge_relationships = []
+        non_relationships = 0
+
+        for node in self.graph.nodes:
+            node = nx.get_node_attributes(self.graph, "person_obj")[node]
+            if (((node.id, node.partner) not in edge_relationships) and 
+                ((node.partner,node.id) not in edge_relationships) and
+                (node.relationship_status=='relationship')):
+                edge_relationships.append((node.id, node.partner))
+            else:
+                non_relationships += 1
+
+        print('total non-relatinoships: ', non_relationships)
+        print('total relationships: ', len(edge_relationships))
+
+        return non_relationships, len(edge_relationships), len(self.graph.edges)
+
 
 def main():
     # initialize the game
     args = { 'NetworkInfo':
-                {'Population': 200,
+                {'Population': 100,
                 'cur_id_num': 0},
         'EpisodeInfo': {
-            'TotalTimesteps':100,
+            'TotalTimesteps':200,
             'GameStartProbability':.7
         }
     }
-    new_game = DatingGame(args)
-    # initialize relationship
-    new_game.set_relationships(init_degs=10)
-    # begin the game!
-    new_game.begin_episode()
 
+    num_episodes = 10
+    total_nonrelationships = 0
+    total_relationships = 0
+    total_edges = 0
+    for i in range(num_episodes):
+        new_game = DatingGame(args)
+        # initialize relationship
+        new_game.set_relationships(init_degs=10)
+        # begin the game!
+        nonrels, rels, num_edges = new_game.begin_episode()
+        total_nonrelationships += nonrels
+        total_relationships += rels
+        total_edges += num_edges
+
+    print('avg total edges: ', (total_nonrelationships+total_relationships)/num_episodes)
+    print('avg total relationships: ', (total_relationships)/num_episodes)
+    print('avg total edges: ', total_edges/num_episodes)
 
 
 if __name__=='__main__':
