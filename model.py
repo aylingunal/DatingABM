@@ -2,6 +2,7 @@
 import networkx as nx
 import random
 import matplotlib.pyplot as plt
+import math
 
 
 class Person:
@@ -10,7 +11,7 @@ class Person:
         # set default params
         self.id = id
         self.relationship_status = 'single'
-        self.available_actions = {'commit':.5,'dump':.5}
+        self.available_actions = {'commit':.4,'dump':.6}
         self.popularity = .5
         self.partner = -1 # if non-neg, then in relationship
         # set any randomizable or otherwise configurable parameters
@@ -38,6 +39,7 @@ class DatingGame:
         self.gamestartprob = args['EpisodeInfo']['GameStartProbability']
         self.population = args['NetworkInfo']['Population']
         self.id_num = args['NetworkInfo']['cur_id_num']
+        self.experiment = args['Experiment']
         # create the network
         self.graph = nx.Graph()
         for i in range(self.population):
@@ -49,6 +51,12 @@ class DatingGame:
             nx.set_node_attributes(self.graph, node_attributes)
             # incremenet id_num
             self.id_num += 1
+    
+    # add random subset of nodes to online dating pool
+    def online_dating_pool(self):
+        perc_od = .3
+        num_od = math.ceil(perc_od*(len(self.graph.nodes)))
+        return random.sample(self.graph.nodes, num_od)
 
     # set relationships randomly
     def set_relationships(self, init_degs):
@@ -77,18 +85,40 @@ class DatingGame:
 
     # run the episode
     def begin_episode(self):
+        # get folks that are online dating
+        od_pool = self.online_dating_pool()
+
+        rels_per_timestep = []
+        edge_relationships = []
         for timestep in range(self.totaltimesteps):
+            # record relationships per timestep
+            rels_cur_timestep = 0
+            for node in self.graph.nodes:
+                node = nx.get_node_attributes(self.graph, "person_obj")[node]
+                if (((node.id, node.partner) not in edge_relationships) and 
+                    ((node.partner,node.id) not in edge_relationships) and
+                    (node.relationship_status=='relationship')):
+                   # edge_relationships.append((node.id, node.partner))
+                    rels_cur_timestep += 1
+            rels_per_timestep.append(rels_cur_timestep)
+
             print('timestep ', timestep, '...')
             for node in self.graph.nodes:
                 node = nx.get_node_attributes(self.graph, "person_obj")[node]
               #  print(node.relationship_status, ' ', node.id, node.partner)
                 ### if node is NOT in a relationship
                 if node.relationship_status == 'single':
+
                     ### set up the pool of nodes that target node could date
                     dating_pool = [x for x in self.graph.neighbors(node.id)]
                     # if we're allowing for 2nd degree connections:
                     for neighbor in self.graph.neighbors(node.id):
                         dating_pool.extend(self.graph.neighbors(neighbor))
+
+                    # if relevant, open pool up to those in online dating
+                    if self.experiment['OnlineDating']==True:
+                        dating_pool.extend(od_pool)
+
                     # remove duplicates
                     dating_pool = set(dating_pool)
                     # remove non-single nodes
@@ -182,9 +212,14 @@ class DatingGame:
                         node.relationship_status = 'single'
                         partner.relationship_status = 'single'
 
-        # visualize end graph
-        nx.draw(self.graph)
+        plt.plot(rels_per_timestep)
+        plt.xlabel('Timesteps')
+        plt.ylabel('Percent Relationships')
         plt.show()
+
+        # visualize end graph
+        # nx.draw(self.graph)
+        # plt.show()
         # get stats on relationships
         edge_relationships = []
         non_relationships = 0
@@ -205,17 +240,21 @@ class DatingGame:
 
 
 def main():
-    # initialize the game
+    # initialize the game (update params as needed, rn debugging)
     args = { 'NetworkInfo':
-                {'Population': 100,
+                {'Population': 100,#,100,
                 'cur_id_num': 0},
         'EpisodeInfo': {
-            'TotalTimesteps':200,
-            'GameStartProbability':.7
+            'TotalTimesteps':1000,#200,
+            'GameStartProbability':.85
+        },
+        'Experiment': {
+            'OnlineDating':False,
+            'CultureValues':True
         }
     }
 
-    num_episodes = 10
+    num_episodes = 1000
     total_nonrelationships = 0
     total_relationships = 0
     total_edges = 0
